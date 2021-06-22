@@ -45,8 +45,12 @@ bool AP_ADSB_uAvionix_UCP::detect()
 bool AP_ADSB_uAvionix_UCP::init()
 {
     _port = AP::serialmanager().find_serial(AP_SerialManager::SerialProtocol_ADSB, 0);
+    if (_port == nullptr) {
+        return false;
+    }
 
-    return (_port != nullptr);
+    request_msg(GDL90_ID_IDENTIFICATION);
+    return true;
 }
 
 
@@ -74,339 +78,20 @@ void AP_ADSB_uAvionix_UCP::update()
         }
     } // while nbytes
 
-    if (now_ms - rx.last_msg_ms > AP_ADSB_MSG_TIMEOUT_MS) {
-        // detect disconnected device and re-init
-        rx.last_msg_ms = now_ms;
-        if (init_state.stage != INIT_STAGE::WAIT_BOOT_DELAY) {
-            init_state.timer_ms = 0;
-            init_state.stage = INIT_STAGE::WAIT_BOOT_DELAY;
-        }
-        return;
-    } else if (init_state.stage != INIT_STAGE::DONE)  {
-        init_device();
-        return;
-    }
-
-    run_device();
-}
 
 
-void AP_ADSB_uAvionix_UCP::run_device()
-{
-    const uint32_t now_ms = AP_HAL::millis();
-
-    if (now_ms - run_state.last_packet_Transponder_Control_ms >= 1000) {
+   if (now_ms - run_state.last_packet_Transponder_Control_ms >= 1000) {
         run_state.last_packet_Transponder_Control_ms = now_ms;
         send_Transponder_Control();
     }
 
-    bool const inhibitSendGps = (_frontend._options & uint32_t(AP_ADSB::AdsbOption::Inhibit_GPS_tx)) != 0;
-    if (!inhibitSendGps && now_ms - run_state.last_packet_GPS_ms >= 200) {
+    bool const inhibit_send_gps = (_frontend._options & uint32_t(AP_ADSB::AdsbOption::Inhibit_GPS_tx)) != 0;
+    if (!inhibit_send_gps && now_ms - run_state.last_packet_GPS_ms >= 200) {
         run_state.last_packet_GPS_ms = now_ms;
         send_GPS_Data();
     }
-
-
-    bool const checkConfig_1s = (_frontend._options & uint32_t(AP_ADSB::AdsbOption::CheckConfig_1s)) != 0;
-    bool const checkConfig_10s = (_frontend._options & uint32_t(AP_ADSB::AdsbOption::CheckConfig_10s)) != 0;
-    if ((checkConfig_1s && now_ms - run_state.last_config_check_ms >= 1000) ||
-        (checkConfig_10s && now_ms - run_state.last_config_check_ms >= 10000)) {
-        run_state.last_config_check_ms = now_ms;
-
-        // this checks the config but if we're not doing the full init then this will not change anythign and not spam the GCS
-        if (!check_config()) {
-            // something has changed since init, lets re-init
-            init_state.stage = INIT_STAGE::WAIT_FOR_HW_ID;
-        }
-    }
 }
 
-
-void AP_ADSB_uAvionix_UCP::init_device()
-{
-    const uint32_t now_ms = AP_HAL::millis();
-
-    switch (init_state.stage) {
-    case INIT_STAGE::WAIT_BOOT_DELAY:
-        if (init_state.timer_ms == 0) {
-            init_state.timer_ms = now_ms;
-            // invalidate the current cached copies to ensure we get fresh ones
-            rx.decoded.identification.messageId = (GDL90_MESSAGE_ID)0;      // this should get auto-populated at 1Hz
-            rx.decoded.transponder_config.messageId = (GDL90_MESSAGE_ID)0;  // this gets populated once I request it
-        } else if (now_ms - init_state.timer_ms >= 2000) {
-            // this gives us time for the 1 Hz loops to update params and settle
-            init_state.stage = INIT_STAGE::WAIT_FOR_HW_ID;
-        }
-        break;
-
-    case INIT_STAGE::WAIT_FOR_HW_ID:
-        if (rx.decoded.identification.messageId != 0) {
-            // messageId will populate with the message id once it receives that packet
-            init_state.stage = INIT_STAGE::REQUEST_CONFIG;
-        }
-        break;
-
-    case INIT_STAGE::REQUEST_CONFIG:
-        if (rx.decoded.transponder_config.messageId != 0) {
-            // messageId will populate with the message id once it receives that packet
-            init_state.stage = INIT_STAGE::COMPARE_CONFIG;
-        } else if (now_ms - init_state.timer_ms >= 1000) {
-            init_state.timer_ms = now_ms;
-            request_msg(GDL90_ID_TRANSPONDER_CONFIG);
-        }
-        break;
-
-    case INIT_STAGE::COMPARE_CONFIG: {
-        if (check_config()) {
-            // confing looks OK!
-            init_state.stage = INIT_STAGE::DONE;
-        } else {
-            // invalidate the structure and re-request
-            init_state.timer_ms = 0;
-            init_state.stage = INIT_STAGE::UPDATE_CONFIG;
-        }
-        } break;
-
-    case INIT_STAGE::UPDATE_CONFIG:
-        if (init_state.timer_ms == 0) {
-            init_state.timer_ms = now_ms;
-            gdl90Transmit((GDL90_TX_MESSAGE&)rx.decoded.transponder_config, sizeof(rx.decoded.transponder_config));
-        } else if (now_ms - init_state.timer_ms >= 500) {
-            init_state.stage = INIT_STAGE::REQUEST_CONFIG;
-        }
-        break;
-
-    case INIT_STAGE::DONE:
-        // nothing to do, we shouldn't ever reach this state
-        return;
-    } // init_state.stage
-
-    if (init_state.stage == INIT_STAGE::DONE) {
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: %s Initialized", get_hardware_name(rx.decoded.identification.primary.hwId));
-    }
-}
-
-
-bool AP_ADSB_uAvionix_UCP::check_config()
-{
-    // returns true if all the fields we care about match
-    // asume true. If anything needs updating then set cfg_OK to false and update
-    // the value and then the next state will set that value in the device and then
-    // we'll verify by looping around again
-    bool cfg_OK = true;
-    
-    const bool check_only = (init_state.stage == INIT_STAGE::DONE);
-
-    const uint32_t device_icao = ((uint32_t)rx.decoded.transponder_config.icaoAddress[2]) |
-                                 ((uint32_t)rx.decoded.transponder_config.icaoAddress[1] << 8) |
-                                 ((uint32_t)rx.decoded.transponder_config.icaoAddress[0] << 16);
-
-    uint32_t my_icao;
-    if (_frontend.out_state.cfg.was_set_externally) {
-        my_icao = (uint32_t)_frontend.out_state.cfg.ICAO_id;
-    } else {
-        my_icao = (uint32_t)_frontend.out_state.cfg.ICAO_id_param;
-    }
-    my_icao &= 0x00FFFFFF;
-    
-    if ((device_icao != my_icao) && (my_icao != 0)) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: IcaoAddress %X -> %X",
-            (unsigned)device_icao,
-            (unsigned)my_icao);
-
-        cfg_OK = false;
-        rx.decoded.transponder_config.icaoAddress[2] = my_icao       & 0xFF;
-        rx.decoded.transponder_config.icaoAddress[1] = (my_icao>>8)  & 0xFF;
-        rx.decoded.transponder_config.icaoAddress[0] = (my_icao>>16) & 0xFF;
-
-        rx.decoded.transponder_config.valdityBitmask.icaoValid = 1;
-    }
-
-    const ADSB_AIRCRAFT_LENGTH_WIDTH lengthWidth = (ADSB_AIRCRAFT_LENGTH_WIDTH)_frontend.out_state.cfg.lengthWidth.get();
-    if (rx.decoded.transponder_config.lengthWidth != lengthWidth) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: lengthWidth %u -> %u",
-            (unsigned)rx.decoded.transponder_config.lengthWidth,
-            (unsigned)lengthWidth);
-
-        cfg_OK = false;
-        rx.decoded.transponder_config.lengthWidth = lengthWidth;
-        rx.decoded.transponder_config.valdityBitmask.aircraftLenWidthValid = 1;
-    }
-
-    const ADSB_UAT_IN_CAPABILITY supports_UAT_in = (_frontend.out_state.cfg.rf_capable & ADSB_BITBASK_RF_CAPABILITIES_UAT_IN) != 0 ? ADSB_UAT_IN_CAPABLE : ADSB_NOT_UAT_IN_CAPABLE;
-    const ADSB_1090ES_IN_CAPABILITY supports_1090ES_in = (_frontend.out_state.cfg.rf_capable & ADSB_BITBASK_RF_CAPABILITIES_1090ES_IN) != 0 ? ADSB_1090ES_IN_CAPABLE :ADSB_NOT_1090ES_IN_CAPABLE;
-    if (rx.decoded.transponder_config.uatInCapable != supports_UAT_in ||
-        rx.decoded.transponder_config.es1090InCapable != supports_1090ES_in) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: rf_capable UAT(%u -> %u) 1090ES(%u -> %u)",
-            (unsigned)rx.decoded.transponder_config.uatInCapable,
-            (unsigned)supports_UAT_in,
-            (unsigned)rx.decoded.transponder_config.es1090InCapable,
-            (unsigned)supports_1090ES_in);
-
-        cfg_OK = false;
-        rx.decoded.transponder_config.uatInCapable = supports_UAT_in;
-        rx.decoded.transponder_config.es1090InCapable = supports_1090ES_in;
-        rx.decoded.transponder_config.valdityBitmask.adsbInCapValid = 1;
-    }
-
-    if (rx.decoded.transponder_config.stallSpeed_cmps != _frontend.out_state.cfg.stall_speed_cm) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: stall speed %u -> %u",
-            (unsigned)rx.decoded.transponder_config.stallSpeed_cmps,
-            (unsigned)_frontend.out_state.cfg.stall_speed_cm);
-
-        cfg_OK = false;
-        rx.decoded.transponder_config.stallSpeed_cmps = _frontend.out_state.cfg.stall_speed_cm;
-        rx.decoded.transponder_config.valdityBitmask.aircraftStallSpeedValid = 1;
-    }
-
-    const GDL90_BARO_DATA_SOURCE baroAltSource_desired = (_frontend._options & uint32_t(AP_ADSB::AdsbOption::Autopilot_is_alt_baro)) ? GDL90_BARO_DATA_SOURCE_EXTERNAL : GDL90_BARO_DATA_SOURCE_INTERNAL;
-    if (rx.decoded.transponder_config.baroAltSource != baroAltSource_desired ||
-        rx.decoded.transponder_config.baro100 != 0 ||
-        rx.decoded.transponder_config.testMode != 0) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: BaroAltSrc(%u->%u), Baro(%u->0), Test(%u->0)",
-            (unsigned)rx.decoded.transponder_config.baroAltSource,
-            (unsigned)baroAltSource_desired,
-            (unsigned)rx.decoded.transponder_config.baro100,
-            (unsigned)rx.decoded.transponder_config.testMode);
-
-        cfg_OK = false;
-
-        rx.decoded.transponder_config.baro100 = 0;
-        rx.decoded.transponder_config.testMode = 0;
-        rx.decoded.transponder_config.baroAltSource = baroAltSource_desired;
-
-        rx.decoded.transponder_config.valdityBitmask.baro100Valid = 1;
-        rx.decoded.transponder_config.valdityBitmask.defaultModeSReplyModeValid = 1;
-        rx.decoded.transponder_config.valdityBitmask.defaultModeCReplyModeValid = 1;
-        rx.decoded.transponder_config.valdityBitmask.defaultModeAReplyModeValid = 1;
-    }
-
-    const ADSB_GPS_LONGITUDINAL_OFFSET long_offset = (ADSB_GPS_LONGITUDINAL_OFFSET)_frontend.out_state.cfg.gpsOffsetLon.get();
-    const ADSB_GPS_LATERAL_OFFSET lat_offset = (ADSB_GPS_LATERAL_OFFSET)_frontend.out_state.cfg.gpsOffsetLat.get();
-    if (rx.decoded.transponder_config.longitudinalOffset != long_offset ||
-        rx.decoded.transponder_config.lateralOffset != lat_offset) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: GPS Offset lat(%u -> %u) long(%u -> %u)",
-            (unsigned)rx.decoded.transponder_config.longitudinalOffset,
-            (unsigned)long_offset,
-            (unsigned)rx.decoded.transponder_config.lateralOffset,
-            (unsigned)lat_offset);
-
-        cfg_OK = false;
-        rx.decoded.transponder_config.longitudinalOffset = long_offset;
-        rx.decoded.transponder_config.lateralOffset = lat_offset;
-        rx.decoded.transponder_config.valdityBitmask.aircraftLatOffsetValid = 1;
-        rx.decoded.transponder_config.valdityBitmask.aircraftLongOffsetValid = 1;
-    }
-    
-    const ADSB_EMITTER emitterType = (ADSB_EMITTER)_frontend.out_state.cfg.emitterType.get();
-    if (rx.decoded.transponder_config.emitterType != emitterType) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: emitter Type %u -> %u",
-            (unsigned)rx.decoded.transponder_config.emitterType,
-            (unsigned)emitterType);
-
-        cfg_OK = false;
-        rx.decoded.transponder_config.emitterType = emitterType;
-        rx.decoded.transponder_config.valdityBitmask.aircraftEmitterCatValid = 1;
-    }
-
-    const bool es1090TxEnabled = (_frontend.out_state.cfg.rfSelect & UAVIONIX_ADSB_OUT_RF_SELECT_TX_ENABLED) != 0;
-    if (rx.decoded.transponder_config.es1090TxEnabled != es1090TxEnabled) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: TX Enabled at power-up %u -> %u",
-            (unsigned)rx.decoded.transponder_config.es1090TxEnabled,
-            (unsigned)es1090TxEnabled);
-
-        cfg_OK = false;
-        rx.decoded.transponder_config.es1090TxEnabled = es1090TxEnabled;
-        rx.decoded.transponder_config.valdityBitmask.default1090ExTxModeValid = 1;
-    }
-
-    const uint16_t defaultSquawk = _frontend.out_state.cfg.squawk_octal;
-    if (rx.decoded.transponder_config.defaultSquawk != defaultSquawk) {
-        if (check_only) {
-            return false;
-        }
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: Squawk %u -> %u",
-            (unsigned)rx.decoded.transponder_config.defaultSquawk,
-            (unsigned)defaultSquawk);
-
-        cfg_OK = false;
-        rx.decoded.transponder_config.defaultSquawk = defaultSquawk;
-        rx.decoded.transponder_config.valdityBitmask.defaultModeASquawkValid = 1;
-    }
-
-    const uint8_t registration_len = sizeof(rx.decoded.transponder_config.registration); // this is 8
-    if (_frontend.out_state.cfg.was_set_externally &&
-        memcmp(rx.decoded.transponder_config.registration, _frontend.out_state.cfg.callsign, registration_len) != 0) {
-        // this is very very hard to have set at boot time. To take advantage of this, set ADSB.TYPE=0
-        // then reboot, then after it boots up, send mavlink_uavionix_adsb_out_cfg_t and then enable ADSB.
-        // When ADSB starts up, that flag will be set and _frontend.out_state.cfg.callsign will be available
-
-        if (check_only) {
-            return false;
-        }
-
-        gcs().send_text(MAV_SEVERITY_DEBUG, "ADSB: Setting Cfg: Callsign %s -> %s",
-            rx.decoded.transponder_config.registration,
-            _frontend.out_state.cfg.callsign);
-        
-        cfg_OK = false;
-        memcpy(rx.decoded.transponder_config.registration, _frontend.out_state.cfg.callsign, registration_len);
-        bool has_seen_space = false;
-        for (uint8_t i=0; i<registration_len; i++) {
-            if (has_seen_space) {
-                // once there's a space, it must be trailing whitespace
-                rx.decoded.transponder_config.registration[i] = ' ';
-            }
-
-            const uint8_t value = rx.decoded.transponder_config.registration[i];
-            if (isupper(value) || isdigit(value) || value == ' ') {
-                //Aircraft Registration (ASCII string A-Z, 0-9 only), e.g. “N8644B “. Trailing spaces (0x20) only.
-                continue;
-            }
-
-            if (islower(value)) {
-                rx.decoded.transponder_config.registration[i] = toupper(value);
-            } else {
-                rx.decoded.transponder_config.registration[i] = ' ';
-                has_seen_space = true;
-            }
-        }
-    }
-
-    // Don't Care.. or we do't store them in params to be able to veryify and set them
-    // maxSpeed
-    // SIL
-    // SDA
-    // inProtocol - we're already talking..
-    // outProtocol - we're already talking..
-    // baudRate    - we're already talking to it, won't hurt to just always forever use this baud
-
-    return cfg_OK;
-}
 
 void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
 {
@@ -416,42 +101,28 @@ void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
         // transponder. The message will be transmitted with a period of one second for the UCP
         // protocol.
         memcpy(&rx.decoded.heartbeat, msg.raw, sizeof(rx.decoded.heartbeat));
-        
         _frontend.out_state.ident_isActive = rx.decoded.heartbeat.status.one.ident;
         if (rx.decoded.heartbeat.status.one.ident) {
             // if we're identing, clear the pending send request
             _frontend.out_state.ident_pending = false;
         }
+        break;
 
-        break;
-    case GDL90_ID_OWNSHIP_REPORT:
-        // The Ownship message contains information on the GNSS position. If the Ownship GNSS
-        // position fix is invalid, the Latitude, Longitude, and NIC fields will all have the ZERO value. The
-        // Ownship message will be transmitted with a period of one second regardless of data status or
-        // update for the UCP protocol. All fields in the ownship message are transmitted MSB first
-        memcpy(&rx.decoded.ownship_report, msg.raw, sizeof(rx.decoded.ownship_report));
-        break;
-    case GDL90_ID_OWNSHIP_GEOMETRIC_ALTITUDE:
-        // An Ownship Geometric Altitude message will be transmitted with a period of one second when
-        // the GNSS fix is valid for the UCP protocol. All fields in the Geometric Ownship Altitude
-        // message are transmitted MSB first.
-        memcpy(&rx.decoded.ownship_geometric_altitude, msg.raw, sizeof(rx.decoded.ownship_geometric_altitude));
-        break;
     case GDL90_ID_IDENTIFICATION:
         // The Identification message contains information used to identify the connected device. The
         // Identification message will be transmitted with a period of one second regardless of data status
         // or update for the UCP protocol and will be transmitted upon request for the UCP-HD protocol.
-        if (rx.decoded.identification.messageId == 0) {
+        if (memcmp(&rx.decoded.identification, msg.raw, sizeof(rx.decoded.identification)) != 0) {
             memcpy(&rx.decoded.identification, msg.raw, sizeof(rx.decoded.identification));
 
-            // Firmware Part Number (not null terminated, but null padded if part number is less than 15 characters)
-            // copy into a temporary string that is 1 char longer so we ensure it's null terminated
+            // Firmware Part Number (not null terminated, but null padded if part number is less than 15 characters).
+            // Copy into a temporary string that is 1 char longer so we ensure it's null terminated
             const uint8_t str_len = sizeof(rx.decoded.identification.primaryFwPartNumber);
             char primaryFwPartNumber[str_len+1];
             memcpy(&primaryFwPartNumber, rx.decoded.identification.primaryFwPartNumber, str_len);
             primaryFwPartNumber[str_len] = 0;
             
-            gcs().send_text(MAV_SEVERITY_DEBUG,"ADSB:Detected %s v%u.%u.%u SN:%u %s",
+            GCS_SEND_TEXT(MAV_SEVERITY_DEBUG,"ADSB:Detected %s v%u.%u.%u SN:%u %s",
             get_hardware_name(rx.decoded.identification.primary.hwId),
             (unsigned)rx.decoded.identification.primary.fwMajorVersion,
             (unsigned)rx.decoded.identification.primary.fwMinorVersion,
@@ -460,15 +131,35 @@ void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
             primaryFwPartNumber);
         }
         break;
-    case GDL90_ID_SENSOR_MESSAGE:
-        memcpy(&rx.decoded.sensor_message, msg.raw, sizeof(rx.decoded.sensor_message));
-        break;
+
     case GDL90_ID_TRANSPONDER_CONFIG:
         memcpy(&rx.decoded.transponder_config, msg.raw, sizeof(rx.decoded.transponder_config));
         break;
+
+#if HAL_ADSB_UCP_CAPTURE_ALL_RX_PACKETS
+    case GDL90_ID_OWNSHIP_REPORT:
+        // The Ownship message contains information on the GNSS position. If the Ownship GNSS
+        // position fix is invalid, the Latitude, Longitude, and NIC fields will all have the ZERO value. The
+        // Ownship message will be transmitted with a period of one second regardless of data status or
+        // update for the UCP protocol. All fields in the ownship message are transmitted MSB first
+        memcpy(&rx.decoded.ownship_report, msg.raw, sizeof(rx.decoded.ownship_report));
+        break;
+
+    case GDL90_ID_OWNSHIP_GEOMETRIC_ALTITUDE:
+        // An Ownship Geometric Altitude message will be transmitted with a period of one second when
+        // the GNSS fix is valid for the UCP protocol. All fields in the Geometric Ownship Altitude
+        // message are transmitted MSB first.
+        memcpy(&rx.decoded.ownship_geometric_altitude, msg.raw, sizeof(rx.decoded.ownship_geometric_altitude));
+        break;
+
+    case GDL90_ID_SENSOR_MESSAGE:
+        memcpy(&rx.decoded.sensor_message, msg.raw, sizeof(rx.decoded.sensor_message));
+        break;
+
     case GDL90_ID_TRANSPONDER_STATUS:
         memcpy(&rx.decoded.transponder_status, msg.raw, sizeof(rx.decoded.transponder_status));
         break;
+#endif // HAL_ADSB_UCP_CAPTURE_ALL_RX_PACKETS
 
     case GDL90_ID_TRANSPONDER_CONTROL:
     case GDL90_ID_GPS_DATA:
@@ -476,7 +167,7 @@ void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
         // not handled, outbound only
         break;
     default:
-        //gcs().send_text(MAV_SEVERITY_DEBUG,"ADSB:Unknown msg %d", (int)msg.messageId);
+        //GCS_SEND_TEXT(MAV_SEVERITY_DEBUG,"ADSB:Unknown msg %d", (int)msg.messageId);
         break;
     }
 }
@@ -490,13 +181,12 @@ const char* AP_ADSB_uAvionix_UCP::get_hardware_name(const uint8_t hwId)
         case 0x18: return "Ping200C";
         case 0x27: return "Ping20Z";
         case 0x2D: return "SkyBeaconX";             // (certified)
-        case 0x26: //return "Ping200Z/Ping200X";    // (uncertified). Let's fallthrough and use use Ping200X
+        case 0x26: //return "Ping200Z/Ping200X";    // (uncertified). Let's fallthrough and use Ping200X
         case 0x2F: return "Ping200X";               // (certified)
         case 0x30: return "TailBeaconX";            // (certified)
     } // switch hwId
-    return "Unknown HW";    
+    return "Unknown HW";
 }
-
 
 void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
 {
@@ -513,8 +203,8 @@ void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
 #endif
 
     msg.baroCrossChecked = ADSB_NIC_BARO_UNVERIFIED;
-    msg.identActive = _frontend.out_state.ident_pending;
-    msg.modeAEnabled = true;
+    msg.identActive = _frontend.out_state.ident_pending && !_frontend.out_state.ident_isActive; // set when pending via user but not already active
+    msg.modeAEnabled = false;
     msg.modeCEnabled = true;
     msg.modeSEnabled = true;
     msg.es1090TxEnabled = (_frontend.out_state.cfg.rfSelect & UAVIONIX_ADSB_OUT_RF_SELECT_TX_ENABLED) != 0;
@@ -540,6 +230,8 @@ void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
     msg.emergencyState = gcs_lost_comms ? ADSB_EMERGENCY_STATUS::ADSB_EMERGENCY_UAS_LOST_LINK : ADSB_EMERGENCY_STATUS::ADSB_EMERGENCY_NONE;
     
     memcpy(msg.callsign, _frontend.out_state.cfg.callsign, sizeof(msg.callsign));
+
+    gdl90Transmit((GDL90_TX_MESSAGE&)msg, sizeof(msg));
 }
 
 
@@ -579,10 +271,12 @@ void AP_ADSB_uAvionix_UCP::send_GPS_Data()
 
     // State
     msg.fixType = fix;
+
     GDL90_GPS_NAV_STATE nav_state {};
-      nav_state.HPLfdeActive = 1;
-      nav_state.fault = 0;
-      nav_state.HrdMagNorth = 1;  // 1 means "north" is magnetic north
+    nav_state.HPLfdeActive = 1;
+    nav_state.fault = 0;
+    nav_state.HrdMagNorth = 0;  // 1 means "north" is magnetic north
+
     msg.navState = nav_state;
     msg.satsUsed = AP::gps().num_sats();
 

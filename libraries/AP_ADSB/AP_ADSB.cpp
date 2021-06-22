@@ -160,7 +160,7 @@ const AP_Param::GroupInfo AP_ADSB::var_info[] = {
 
     // @Param: OPTIONS
     // @DisplayName: ADS-B Options
-    // @Bitmask: 0:ADSB-out do not send GPS, 1:ADSB-out use Autopilot's baro as baro alt, 2:Squawk 7400 on RC failsafe, 3:Squawk 7400 on GCS failsafe, 4: Check config every 1s, 5: Check config every 10s
+    // @Bitmask: 0:ADSB-out do not send GPS, 1:ADSB-out use Autopilot's baro as baro alt, 2:Squawk 7400 on RC failsafe, 3:Squawk 7400 on GCS failsafe
     // @User: Advanced
     AP_GROUPINFO("OPTIONS",  15, AP_ADSB, _options, 0),
 

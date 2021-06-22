@@ -22,6 +22,9 @@
 
 #if HAL_ADSB_UCP_ENABLED
 
+#define HAL_ADSB_UCP_CAPTURE_ALL_RX_PACKETS 1
+
+
 #include <AP_GPS/AP_GPS.h>
 #include <AP_Baro/AP_Baro.h>
 #include <AP_AHRS/AP_AHRS.h>
@@ -50,9 +53,6 @@ private:
     void send_GPS_Data();
     void send_Transponder_Control();
     const char* get_hardware_name(const uint8_t hwId);
-    void init_device();
-    void run_device();
-    bool check_config();
 
     bool hostTransmit(uint8_t *buffer, uint16_t length);
     uint16_t gdl90Transmit(GDL90_TX_MESSAGE &message, const uint16_t length);
@@ -65,32 +65,20 @@ private:
 
         // cache local copies so we always have the latest info of everything.
         struct {
+            GDL90_IDENTIFICATION_V3 identification;
+            GDL90_TRANSPONDER_CONFIG_MSG_V4_V5 transponder_config;
             GDL90_HEARTBEAT heartbeat;
+#if HAL_ADSB_UCP_CAPTURE_ALL_RX_PACKETS
             GDL90_OWNSHIP_REPORT ownship_report;
             GDL90_OWNSHIP_GEO_ALTITUDE ownship_geometric_altitude;
-            GDL90_IDENTIFICATION_V3 identification;
             GDL90_SENSOR_BARO_MESSAGE sensor_message;
-            GDL90_TRANSPONDER_CONFIG_MSG_V4_V5 transponder_config;
             GDL90_TRANSPONDER_STATUS_MSG transponder_status;
+#endif // HAL_ADSB_UCP_CAPTURE_ALL_RX_PACKETS
+
         } decoded;
     } rx;
 
-    enum class INIT_STAGE {
-        WAIT_BOOT_DELAY,
-        WAIT_FOR_HW_ID,
-        REQUEST_CONFIG,
-        COMPARE_CONFIG,
-        UPDATE_CONFIG,
-        DONE,
-    } stage;
-
     struct {
-        INIT_STAGE stage;
-        uint32_t timer_ms;
-    } init_state;
-
-    struct {
-        uint32_t last_config_check_ms;
         uint32_t last_packet_GPS_ms;
         uint32_t last_packet_Transponder_Control_ms;
     } run_state;

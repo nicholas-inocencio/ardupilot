@@ -79,8 +79,6 @@ public:
         Autopilot_is_alt_baro           = (1<<1),
         Squawk_7400_FS_RC               = (1<<2),
         Squawk_7400_FS_GCS              = (1<<3),
-        CheckConfig_1s                  = (1<<4),
-        CheckConfig_10s                 = (1<<5),
     };
 
     // for holding parameters
