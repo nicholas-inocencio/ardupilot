@@ -95,7 +95,7 @@ void AP_ADSB_uAvionix_UCP::update()
 void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
 {
     switch(msg.messageId) {
-    case GDL90_ID_HEARTBEAT:
+    case GDL90_ID_HEARTBEAT: {
         // The Heartbeat message provides real-time indications of the status and operation of the
         // transponder. The message will be transmitted with a period of one second for the UCP
         // protocol.
@@ -117,6 +117,7 @@ void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
             _frontend.out_state.ident_pending = false;
         }
         break;
+        }
 
     case GDL90_ID_IDENTIFICATION:
         // The Identification message contains information used to identify the connected device. The
