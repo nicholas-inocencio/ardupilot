@@ -85,8 +85,7 @@ void AP_ADSB_uAvionix_UCP::update()
         send_Transponder_Control();
     }
 
-    bool const inhibit_send_gps = (_frontend._options & uint32_t(AP_ADSB::AdsbOption::Inhibit_GPS_tx)) != 0;
-    if (!inhibit_send_gps && now_ms - run_state.last_packet_GPS_ms >= 200) {
+    if (send_gps && now_ms - run_state.last_packet_GPS_ms >= 200) {
         run_state.last_packet_GPS_ms = now_ms;
         send_GPS_Data();
     }
@@ -101,6 +100,17 @@ void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
         // transponder. The message will be transmitted with a period of one second for the UCP
         // protocol.
         memcpy(&rx.decoded.heartbeat, msg.raw, sizeof(rx.decoded.heartbeat));
+
+        const uint32_t now_ms = AP_HAL::millis();
+        if (run_state.first_packet_Heartbeat_ms > 0){
+            if (now_ms - run_state.first_packet_Heartbeat_ms >= 2000 && !run_state.Heartbeat_two_seconds_b) {
+                send_gps = rx.decoded.heartbeat.status.two.functionFailureGnssUnavailable == 1;
+                run_state.Heartbeat_two_seconds_b = true;
+            }
+        } else {
+            run_state.first_packet_Heartbeat_ms = now_ms;
+        }
+
         _frontend.out_state.ident_isActive = rx.decoded.heartbeat.status.one.ident;
         if (rx.decoded.heartbeat.status.one.ident) {
             // if we're identing, clear the pending send request
