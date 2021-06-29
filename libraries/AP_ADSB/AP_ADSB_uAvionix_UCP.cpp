@@ -215,7 +215,7 @@ void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
 
     msg.baroCrossChecked = ADSB_NIC_BARO_UNVERIFIED;
     msg.identActive = _frontend.out_state.ident_pending && !_frontend.out_state.ident_isActive; // set when pending via user but not already active
-    msg.modeAEnabled = false;
+    msg.modeAEnabled = true;
     msg.modeCEnabled = true;
     msg.modeSEnabled = true;
     msg.es1090TxEnabled = (_frontend.out_state.cfg.rfSelect & UAVIONIX_ADSB_OUT_RF_SELECT_TX_ENABLED) != 0;
