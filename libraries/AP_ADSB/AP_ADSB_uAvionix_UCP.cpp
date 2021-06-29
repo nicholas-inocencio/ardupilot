@@ -210,7 +210,8 @@ void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
     // inhibit chaos if this ias actually being broadcasted on real hardware
     msg.airGroundState =  ADSB_ON_GROUND;
 #else
-    msg.airGroundState =  _frontend.out_state.is_flying ? ADSB_AIRBORNE_SUBSONIC : ADSB_ON_GROUND;
+    // msg.airGroundState =  _frontend.out_state.is_flying ? ADSB_AIRBORNE_SUBSONIC : ADSB_ON_GROUND;
+    msg.airGroundState = ADSB_AIRBORNE_SUBSONIC;
 #endif
 
     msg.baroCrossChecked = ADSB_NIC_BARO_UNVERIFIED;
@@ -236,10 +237,10 @@ void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
         msg.squawkCode = _frontend.out_state.cfg.squawk_octal;
     }
 
-    const uint32_t last_gcs_ms = gcs().sysid_myggcs_last_seen_time_ms();
-    const bool gcs_lost_comms = (last_gcs_ms != 0) && (AP_HAL::millis() - last_gcs_ms < AP_ADSB_GCS_LOST_COMMS_LONG_TIMEOUT_MS);
-    msg.emergencyState = gcs_lost_comms ? ADSB_EMERGENCY_STATUS::ADSB_EMERGENCY_UAS_LOST_LINK : ADSB_EMERGENCY_STATUS::ADSB_EMERGENCY_NONE;
-    
+    // const uint32_t last_gcs_ms = gcs().sysid_myggcs_last_seen_time_ms();
+    // const bool gcs_lost_comms = (last_gcs_ms != 0) && (AP_HAL::millis() - last_gcs_ms > AP_ADSB_GCS_LOST_COMMS_LONG_TIMEOUT_MS);
+    // msg.emergencyState = gcs_lost_comms ? ADSB_EMERGENCY_STATUS::ADSB_EMERGENCY_UAS_LOST_LINK : ADSB_EMERGENCY_STATUS::ADSB_EMERGENCY_NONE;
+    msg.emergencyState = ADSB_EMERGENCY_STATUS::ADSB_EMERGENCY_NONE;
     memcpy(msg.callsign, _frontend.out_state.cfg.callsign, sizeof(msg.callsign));
 
     gdl90Transmit((GDL90_TX_MESSAGE&)msg, sizeof(msg));
