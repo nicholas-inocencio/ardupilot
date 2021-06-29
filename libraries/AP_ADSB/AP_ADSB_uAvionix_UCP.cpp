@@ -104,7 +104,7 @@ void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
         const uint32_t now_ms = AP_HAL::millis();
         if (run_state.first_packet_Heartbeat_ms > 0){
             if (now_ms - run_state.first_packet_Heartbeat_ms >= 2000 && !run_state.Heartbeat_two_seconds_b) {
-                send_gps = rx.decoded.heartbeat.status.two.functionFailureGnssUnavailable;
+                send_gps = rx.decoded.heartbeat.status.two.functionFailureGnssUnavailable == 1;
                 run_state.Heartbeat_two_seconds_b = true;
             }
         } else {
