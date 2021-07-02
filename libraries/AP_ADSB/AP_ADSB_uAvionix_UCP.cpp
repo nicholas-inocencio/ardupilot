@@ -78,8 +78,6 @@ void AP_ADSB_uAvionix_UCP::update()
         }
     } // while nbytes
 
-
-
    if (now_ms - run_state.last_packet_Transponder_Control_ms >= 1000) {
         run_state.last_packet_Transponder_Control_ms = now_ms;
         send_Transponder_Control();
@@ -101,15 +99,17 @@ void AP_ADSB_uAvionix_UCP::handle_msg(const GDL90_RX_MESSAGE &msg)
         // protocol.
         memcpy(&rx.decoded.heartbeat, msg.raw, sizeof(rx.decoded.heartbeat));
 
-        const uint32_t now_ms = AP_HAL::millis();
-        if (run_state.first_packet_Heartbeat_ms > 0){
-            if (now_ms - run_state.first_packet_Heartbeat_ms >= 2000 && !run_state.Heartbeat_two_seconds_b) {
-                send_gps = rx.decoded.heartbeat.status.two.functionFailureGnssUnavailable == 1;
-                run_state.Heartbeat_two_seconds_b = true;
-            }
-        } else {
-            run_state.first_packet_Heartbeat_ms = now_ms;
-        }
+        // Disabled entirely for now. GPS messages will simply not be sent. 
+        // Controls whether to send GPS messages based on whether the transponder has its own GPS. 
+        // const uint32_t now_ms = AP_HAL::millis();
+        // if (run_state.first_packet_Heartbeat_ms > 0){
+        //     if (now_ms - run_state.first_packet_Heartbeat_ms >= 2000 && !run_state.Heartbeat_two_seconds_b) {
+        //         send_gps = rx.decoded.heartbeat.status.two.functionFailureGnssUnavailable == 1;
+        //         run_state.Heartbeat_two_seconds_b = true;
+        //     }
+        // } else {
+        //     run_state.first_packet_Heartbeat_ms = now_ms;
+        // }
 
         _frontend.out_state.ident_isActive = rx.decoded.heartbeat.status.one.ident;
         if (rx.decoded.heartbeat.status.one.ident) {
@@ -206,7 +206,7 @@ void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
     msg.version = 1;
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    // when using the simulator, always declare we'r eon the ground to help
+    // when using the simulator, always declare we're on the ground to help
     // inhibit chaos if this ias actually being broadcasted on real hardware
     msg.airGroundState =  ADSB_ON_GROUND;
 #else
@@ -221,11 +221,12 @@ void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
     msg.modeSEnabled = true;
     msg.es1090TxEnabled = (_frontend.out_state.cfg.rfSelect & UAVIONIX_ADSB_OUT_RF_SELECT_TX_ENABLED) != 0;
 
-    if ((rx.decoded.transponder_config.baroAltSource == GDL90_BARO_DATA_SOURCE_EXTERNAL) && AP::baro().healthy()) {
-        msg.externalBaroAltitude_mm = AP::baro().get_altitude() * 0.001; // convert m to mm
-    } else {
+    // Hard coding unknown baro for now. 
+    // if ((rx.decoded.transponder_config.baroAltSource == GDL90_BARO_DATA_SOURCE_EXTERNAL) && AP::baro().healthy()) {
+    //     msg.externalBaroAltitude_mm = AP::baro().get_altitude() * 0.001; // convert m to mm
+    // } else {
         msg.externalBaroAltitude_mm = INT32_MAX;
-    }
+    // }
 
     // use squawk 7400 while in any Loss-Comms related failsafe
     // https://www.faa.gov/documentLibrary/media/Notice/N_JO_7110.724_5-2-9_UAS_Lost_Link_2.pdf
