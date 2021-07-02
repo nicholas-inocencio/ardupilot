@@ -4191,7 +4191,9 @@ MAV_RESULT GCS_MAVLINK::handle_command_long_packet(const mavlink_command_long_t 
         if ((AP::ADSB() != nullptr) && AP::ADSB()->ident_start()) {
             result = MAV_RESULT_ACCEPTED;
         }
-        result = MAV_RESULT_FAILED;
+        else {
+            result = MAV_RESULT_FAILED;
+        }
         break;
 #endif
 
