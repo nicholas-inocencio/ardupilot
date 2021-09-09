@@ -242,6 +242,20 @@ const char* AP_ADSB_uAvionix_UCP::get_hardware_name(const uint8_t hwId)
 
 void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
 {
+
+    gcs().send_text(MAV_SEVERITY_DEBUG, "send_Transponder_Control()");
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  baroCrossChecked: %d", _frontend.out_state.ctrl.baroCrossChecked);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  airGroundState: %u", _frontend.out_state.ctrl.airGroundState);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  identActive: %d", _frontend.out_state.ctrl.identActive);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeAEnabled: %d", _frontend.out_state.ctrl.modeAEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeCEnabled: %d", _frontend.out_state.ctrl.modeCEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeSEnabled: %d", _frontend.out_state.ctrl.modeSEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  es1090TxEnabled: %d", _frontend.out_state.ctrl.es1090TxEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  externalBaroAltitude_mm: %ld", _frontend.out_state.ctrl.externalBaroAltitude_mm);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  squawkCode: %u", _frontend.out_state.ctrl.squawkCode);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  emergencyState: %d", _frontend.out_state.ctrl.emergencyState);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  flight_id: %s", _frontend.out_state.ctrl.callsign);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  x_bit: %d", _frontend.out_state.ctrl.x_bit);
     GDL90_TRANSPONDER_CONTROL_MSG msg {};
     msg.messageId = GDL90_ID_TRANSPONDER_CONTROL;
     msg.version = 1;
@@ -292,6 +306,19 @@ void AP_ADSB_uAvionix_UCP::send_Transponder_Control()
 #endif
 
     memcpy(msg.callsign, _frontend.out_state.ctrl.callsign, sizeof(msg.callsign));
+
+    gcs().send_text(MAV_SEVERITY_DEBUG, "Sending control message");
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  baroCrossChecked: %d", msg.baroCrossChecked);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  airGroundState: %u", msg.airGroundState);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  identActive: %d", msg.identActive);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeAEnabled: %d", msg.modeAEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeCEnabled: %d", msg.modeCEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeSEnabled: %d", msg.modeSEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  es1090TxEnabled: %d", msg.es1090TxEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  externalBaroAltitude_mm: %ld", msg.externalBaroAltitude_mm);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  squawkCode: %u", msg.squawkCode);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  emergencyState: %d", msg.emergencyState);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  flight_id: %s", msg.callsign);
 
     gdl90Transmit((GDL90_TX_MESSAGE&)msg, sizeof(msg));
 }
@@ -349,9 +376,19 @@ void AP_ADSB_uAvionix_UCP::send_GPS_Data()
 bool AP_ADSB_uAvionix_UCP::hostTransmit(uint8_t *buffer, uint16_t length)
 {
     if (_port == nullptr || _port->txspace() < length) {
+    gcs().send_text(MAV_SEVERITY_DEBUG, "failed hostTransmit");
+    gcs().send_text(MAV_SEVERITY_DEBUG, "  _port is nullptr: %d", _port == nullptr);
+    gcs().send_text(MAV_SEVERITY_DEBUG, "  _port insufficient size: %d", _port->txspace() < length);
+    gcs().send_text(MAV_SEVERITY_DEBUG, "  _port space: %lu", _port->txspace());
+    gcs().send_text(MAV_SEVERITY_DEBUG, "  message length: %u", length);
+    gcs().send_text(MAV_SEVERITY_DEBUG, "  tx_pending: %d", _port->tx_pending());
       return false;
     }
-    _port->write(buffer, length);
+    size_t wrote = _port->write(buffer, length);
+    gcs().send_text(MAV_SEVERITY_DEBUG, "hostTransmit");
+    gcs().send_text(MAV_SEVERITY_DEBUG, "  message length: %u", length);
+    gcs().send_text(MAV_SEVERITY_DEBUG, "  _port space: %lu", _port->txspace());
+    gcs().send_text(MAV_SEVERITY_DEBUG, "  wrote bytes: %lu", (long unsigned)wrote);
     return true;
 }
 
@@ -369,6 +406,7 @@ bool AP_ADSB_uAvionix_UCP::request_msg(const GDL90_MESSAGE_ID msg_id)
 
 uint16_t AP_ADSB_uAvionix_UCP::gdl90Transmit(GDL90_TX_MESSAGE &message, const uint16_t length)
 {
+  gcs().send_text(MAV_SEVERITY_DEBUG, "gdl90Transmit: %d", message.messageId);
     uint8_t gdl90FrameBuffer[GDL90_TX_MAX_FRAME_LENGTH] {};
 
     const uint16_t frameCrc = crc16_ccitt_GDL90((uint8_t*)&message.raw, length, 0);

@@ -153,7 +153,7 @@ const AP_Param::GroupInfo AP_ADSB::var_info[] = {
     // @Param: LOG
     // @DisplayName: ADS-B logging
     // @Description: 0: no logging, 1: log only special ID, 2:log all
-    // @Values: 0:disable GPS out,1:GCS Failsafe log only special ID,2:log all
+    // @Values: 0:no logging,1:log only special ID,2:log all
     // @User: Advanced
     AP_GROUPINFO("LOG",  14, AP_ADSB, _log, 1),
 
@@ -637,6 +637,7 @@ void AP_ADSB::handle_out_cfg(const mavlink_uavionix_adsb_out_cfg_t &packet)
  */
 void AP_ADSB::handle_out_control(const mavlink_uavionix_adsb_out_control_t &packet)
 {
+    gcs().send_text(MAV_SEVERITY_DEBUG, "handle_out_control");
     out_state.ctrl.baroCrossChecked = packet.state & 1;
     out_state.ctrl.airGroundState = packet.state & 4;
     out_state.ctrl.identActive = packet.state & 8;
@@ -649,6 +650,21 @@ void AP_ADSB::handle_out_control(const mavlink_uavionix_adsb_out_control_t &pack
     out_state.ctrl.emergencyState = packet.emergencyStatus;
     memcpy(out_state.ctrl.callsign, packet.flight_id, sizeof(out_state.ctrl.callsign));
     out_state.ctrl.x_bit = packet.x_bit;
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  state: %x", packet.state);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  baroAltMSL: %lx", packet.baroAltMSL);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  squawk: %x", packet.squawk);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  baroCrossChecked: %d", out_state.ctrl.baroCrossChecked);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  airGroundState: %u", out_state.ctrl.airGroundState);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  identActive: %d", out_state.ctrl.identActive);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeAEnabled: %d", out_state.ctrl.modeAEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeCEnabled: %d", out_state.ctrl.modeCEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  modeSEnabled: %d", out_state.ctrl.modeSEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  es1090TxEnabled: %d", out_state.ctrl.es1090TxEnabled);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  externalBaroAltitude_mm: %ld", out_state.ctrl.externalBaroAltitude_mm);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  squawkCode: %u", out_state.ctrl.squawkCode);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  emergencyState: %d", out_state.ctrl.emergencyState);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  flight_id: %s", out_state.ctrl.callsign);
+    // gcs().send_text(MAV_SEVERITY_DEBUG, "  x_bit: %d", out_state.ctrl.x_bit);
 }
 
 /*
@@ -726,6 +742,7 @@ void AP_ADSB::handle_message(const mavlink_channel_t chan, const mavlink_message
             break;
 
         case MAVLINK_MSG_ID_UAVIONIX_ADSB_OUT_CONTROL: {
+            gcs().send_text(MAV_SEVERITY_DEBUG, "case out_control");
             mavlink_uavionix_adsb_out_control_t packet {};            
             mavlink_msg_uavionix_adsb_out_control_decode(&msg, &packet);
             handle_out_control(packet);
