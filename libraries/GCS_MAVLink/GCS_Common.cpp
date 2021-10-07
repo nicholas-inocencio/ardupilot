@@ -4680,10 +4680,9 @@ void GCS_MAVLINK::send_sys_status()
 
     const AP_BattMonitor &battery = AP::battery();
     float battery_current;
-    int8_t battery_remaining = -1;
+    const int8_t battery_remaining = battery_remaining_pct(AP_BATT_PRIMARY_INSTANCE);
 
     if (battery.healthy() && battery.current_amps(battery_current)) {
-        battery_remaining = battery_remaining_pct(AP_BATT_PRIMARY_INSTANCE);
         battery_current = constrain_float(battery_current * 100,-INT16_MAX,INT16_MAX);
     } else {
         battery_current = -1;
@@ -5813,10 +5812,9 @@ void GCS_MAVLINK::send_high_latency2() const
 
     const AP_BattMonitor &battery = AP::battery();
     float battery_current = -1;
-    int8_t battery_remaining = -1;
+    const int8_t battery_remaining = battery_remaining_pct(AP_BATT_PRIMARY_INSTANCE);
 
     if (battery.healthy() && battery.current_amps(battery_current)) {
-        battery_remaining = battery_remaining_pct(AP_BATT_PRIMARY_INSTANCE);
         battery_current = constrain_float(battery_current * 100,-INT16_MAX,INT16_MAX);
     }
 
