@@ -55,7 +55,6 @@ int AP_Filesystem_Param::open(const char *fname, int flags)
     r.open = true;
     r.start = 0;
     r.count = 0;
-    r.read_size = 0;
     r.writebuf = nullptr;
     if (!read_only) {
         // setup for upload
