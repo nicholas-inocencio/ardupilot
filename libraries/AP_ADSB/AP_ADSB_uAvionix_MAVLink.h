@@ -26,6 +26,8 @@ class AP_ADSB_uAvionix_MAVLink : public AP_ADSB_Backend {
 public:
     using AP_ADSB_Backend::AP_ADSB_Backend;
 
+    AP_ADSB_uAvionix_MAVLink(AP_ADSB &frontend, uint8_t instance);
+
     void update() override;
 
     // static detection function

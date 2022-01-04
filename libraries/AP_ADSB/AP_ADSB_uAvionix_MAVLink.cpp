@@ -28,6 +28,12 @@
 
 extern const AP_HAL::HAL& hal;
 
+AP_ADSB_uAvionix_MAVLink::AP_ADSB_uAvionix AP_ADSB_Backend(AP_ADSB &frontend, uint8_t instance) : AP_ADSB_Backend(frontend, backend)
+{
+    // disable MAVLink passthrough as it causes issues with prameter transfer
+    _port->set_options(port->get_options() | AP_HAL::UARTDriver::OPTION_MAVLINK_NO_FORWARD);
+}
+
 // detect if an port is configured as MAVLink
 bool AP_ADSB_uAvionix_MAVLink::detect()
 {
