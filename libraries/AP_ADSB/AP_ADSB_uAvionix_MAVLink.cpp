@@ -36,9 +36,20 @@ bool AP_ADSB_uAvionix_MAVLink::detect()
     return true;
 }
 
+bool AP_ADSB_uAvionix_MAVLink::init()
+{
+    GCS_MAVLINK::set_channel_private((mavlink_channel_t)_frontend.out_state.chan);
+    return true;
+}
+
 void AP_ADSB_uAvionix_MAVLink::update()
 {
     const uint32_t now = AP_HAL::millis();
+
+    if (!GCS_MAVLINK::is_private((mavlink_channel_t)_frontend.out_state.chan))
+    {
+        GCS_MAVLINK::set_channel_private((mavlink_channel_t)_frontend.out_state.chan);
+    }
 
     // send static configuration data to transceiver, every 5s
     if (_frontend.out_state.chan_last_ms > 0 && now - _frontend.out_state.chan_last_ms > ADSB_CHAN_TIMEOUT_MS) {

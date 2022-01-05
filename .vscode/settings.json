@@ -1,4 +1,12 @@
 {
     "cSpell.language": "en-GB",
-    "astyle.astylerc": "${workspaceFolder}/Tools/CodeStyle/astylerc"
+    "astyle.astylerc": "${workspaceFolder}/Tools/CodeStyle/astylerc",
+    "files.associations": {
+        "memory": "cpp",
+        "random": "cpp",
+        "regex": "cpp",
+        "sstream": "cpp",
+        "xhash": "cpp",
+        "xlocnum": "cpp"
+    }
 }
